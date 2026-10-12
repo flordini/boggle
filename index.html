@@ -89,13 +89,14 @@
     display: grid; place-items: center; color: #14232b; font-weight: 700;
     font-size: calc(var(--board-w) / var(--n) * 0.48);
     user-select: none;
-    transform: rotate(var(--r, 0deg));
   }
-  .die.mark { text-decoration: underline; text-decoration-thickness: .07em; text-underline-offset: .1em; }
+  /* tile (and its shadow) stays fixed; only the letter rotates */
+  .die > span { display: block; line-height: 1; transform: rotate(var(--r, 0deg)); }
+  .die.mark > span { text-decoration: underline; text-decoration-thickness: .07em; text-underline-offset: .1em; }
   .die.long { font-size: calc(var(--board-w) / var(--n) * 0.36); }
-  .die.shake { animation: roll .28s ease-out; }
+  .die.shake > span { animation: roll .28s ease-out; }
   @keyframes roll { from { transform: rotate(calc(var(--r) + 90deg)) scale(.85); opacity: .4; } to { transform: rotate(var(--r)); opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .die.shake { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .die.shake > span { animation: none; } }
 </style>
 </head>
 <body>
@@ -180,7 +181,9 @@ function render() {
     const label = ch === "q" ? "Qu" : ch.toUpperCase();
     el.className = "die shake" + (label.length > 1 ? " long" : "") + (MARKED.includes(label) ? " mark" : "");
     el.style.setProperty("--r", (Math.floor(Math.random() * 4) * 90) + "deg"); // 0/90/180/270, independent per die
-    el.textContent = label;
+    const face = document.createElement("span");
+    face.textContent = label;
+    el.appendChild(face);
     gridEl.appendChild(el);
   });
 }
