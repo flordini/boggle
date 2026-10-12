@@ -12,33 +12,51 @@
     --die: #f6f1e4;
     --die-edge: #cfc6ae;
     --ink: #14232b;
-    --muted: #55676f;
     --accent: #c2410c;
     --accent-ink: #fff;
-    --board-w: min(92vw, 560px);
+
+    --pad: 16px;
+    --gap: 16px;
+    --side: 150px;      /* control column width (landscape) */
+    --ctrl-h: 56px;     /* control row height (portrait) */
+    --av-w: calc(100vw - 2 * var(--pad));
+    --av-h: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--pad));
+    /* portrait: controls above board */
+    --board-w: min(var(--av-w), calc(var(--av-h) - var(--ctrl-h) - var(--gap)));
+
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+  /* landscape: controls beside board */
+  @media (min-aspect-ratio: 1/1) {
+    :root { --board-w: min(calc(var(--av-w) - var(--side) - var(--gap)), var(--av-h)); }
+  }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #11191d; --tray: #2a414d; --well: #17262d;
-      --die: #ece6d4; --die-edge: #b9b098; --ink: #e7edf0; --muted: #94a5ad;
+      --die: #ece6d4; --die-edge: #b9b098; --ink: #e7edf0;
     }
   }
   :root[data-theme="dark"] {
     --bg: #11191d; --tray: #2a414d; --well: #17262d;
-    --die: #ece6d4; --die-edge: #b9b098; --ink: #e7edf0; --muted: #94a5ad;
+    --die: #ece6d4; --die-edge: #b9b098; --ink: #e7edf0;
   }
   html { scroll-padding-top: env(safe-area-inset-top, 0px); }
   * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+    margin: 0; min-height: calc(var(--av-h) + 2 * var(--pad));
+    background: var(--bg); color: var(--ink);
     font-family: "Helvetica Neue", Arial, system-ui, sans-serif;
-    display: flex; flex-direction: column; align-items: center; gap: 20px;
-    padding: 24px 12px 32px;
+    padding: var(--pad);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap);
   }
-  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center; width: var(--board-w); }
+  @media (min-aspect-ratio: 1/1) { body { flex-direction: row; } }
+
+  .controls { display: flex; gap: 12px; align-items: stretch; justify-content: center; height: var(--ctrl-h); }
+  @media (min-aspect-ratio: 1/1) {
+    .controls { flex-direction: column; width: var(--side); height: auto; justify-content: center; gap: 16px; }
+  }
   .sizes { display: flex; border: 2px solid var(--tray); border-radius: 8px; overflow: hidden; }
   .sizes button {
     font: inherit; font-weight: 600; padding: 10px 16px; border: 0; background: transparent;
@@ -46,14 +64,20 @@
   }
   .sizes button + button { border-left: 2px solid var(--tray); }
   .sizes button[aria-pressed="true"] { background: var(--tray); color: #fff; }
+  @media (min-aspect-ratio: 1/1) {
+    .sizes { flex-direction: column; }
+    .sizes button { padding: 16px; font-size: 20px; }
+    .sizes button + button { border-left: 0; border-top: 2px solid var(--tray); }
+  }
   #shuffle {
     font: inherit; font-weight: 700; padding: 10px 24px; border: 0; border-radius: 8px;
-    background: var(--accent); color: var(--accent-ink); cursor: pointer; margin-left: auto;
+    background: var(--accent); color: var(--accent-ink); cursor: pointer;
   }
+  @media (min-aspect-ratio: 1/1) { #shuffle { padding: 20px 16px; font-size: 20px; } }
   #shuffle:active { transform: translateY(1px); }
   button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
-  .tray { background: var(--tray); padding: calc(var(--board-w) * 0.035); border-radius: 14px; width: var(--board-w); }
+  .tray { background: var(--tray); padding: calc(var(--board-w) * 0.035); border-radius: 14px; width: var(--board-w); flex: none; }
   .grid {
     display: grid; gap: calc(var(--board-w) / var(--n) * 0.08);
     grid-template-columns: repeat(var(--n), 1fr);
@@ -65,13 +89,13 @@
     display: grid; place-items: center; color: #14232b; font-weight: 700;
     font-size: calc(var(--board-w) / var(--n) * 0.48);
     user-select: none;
+    transform: rotate(var(--r, 0deg));
   }
+  .die.mark { text-decoration: underline; text-decoration-thickness: .07em; text-underline-offset: .1em; }
   .die.long { font-size: calc(var(--board-w) / var(--n) * 0.36); }
   .die.shake { animation: roll .28s ease-out; }
-  @keyframes roll { from { transform: rotate(var(--r)) scale(.85); opacity: .4; } to { transform: none; opacity: 1; } }
+  @keyframes roll { from { transform: rotate(calc(var(--r) + 90deg)) scale(.85); opacity: .4; } to { transform: rotate(var(--r)); opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .die.shake { animation: none; } }
-
-  .meta { width: var(--board-w); font-size: 14px; color: var(--muted); line-height: 1.5; }
 </style>
 </head>
 <body>
@@ -82,8 +106,6 @@
 </div>
 
 <div class="tray"><div class="grid" id="grid" aria-live="polite"></div></div>
-
-<div class="meta" id="meta"></div>
 
 <script>
 /* ===== CONFIG ===================================================
@@ -104,6 +126,7 @@ const DICE_25 = [
   "emottt","eiiitt","fiprsy","gorrvw","hiprry","nootuw","ooottu"
 ];
 const SIZES = [4, 5, 6, 7];
+const MARKED = ["M", "W", "N", "Z"]; // underlined: disambiguates M/W and N/Z under rotation
 const VOWELS = "aeiou";           // Y and Qu count as consonants
 const MIN_VOWEL_RATIO = 0.25;      // board is re-rolled if vowels fall outside
 const MAX_VOWEL_RATIO = 0.50;      // [ceil(N*min), floor(N*max)]
@@ -147,7 +170,6 @@ function rollBoard(n) {
 let size = 4;
 let board = [];
 const gridEl = document.getElementById("grid");
-const metaEl = document.getElementById("meta");
 const sizesEl = document.getElementById("sizes");
 
 function render() {
@@ -156,13 +178,11 @@ function render() {
   board.forEach(ch => {
     const el = document.createElement("div");
     const label = ch === "q" ? "Qu" : ch.toUpperCase();
-    el.className = "die shake" + (label.length > 1 ? " long" : "");
-    el.style.setProperty("--r", (Math.floor(Math.random() * 4) * 90 - 90) + "deg");
+    el.className = "die shake" + (label.length > 1 ? " long" : "") + (MARKED.includes(label) ? " mark" : "");
+    el.style.setProperty("--r", (Math.floor(Math.random() * 4) * 90) + "deg"); // 0/90/180/270, independent per die
     el.textContent = label;
     gridEl.appendChild(el);
   });
-  const v = board.filter(c => VOWELS.includes(c)).length;
-  metaEl.textContent = size + "×" + size + " · " + v + " vowels, " + (board.length - v) + " consonants";
 }
 
 function shuffle() { board = rollBoard(size); render(); }
