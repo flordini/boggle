@@ -17,8 +17,8 @@
 
     --pad: 16px;
     --gap: 16px;
-    --side: 150px;      /* control column width (landscape) */
-    --ctrl-h: 56px;     /* control row height (portrait) */
+    --side: 176px;      /* control column width (landscape) */
+    --ctrl-h: 108px;    /* control block height (portrait, two rows) */
     --av-w: calc(100vw - 2 * var(--pad));
     --av-h: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--pad));
     /* portrait: controls above board */
@@ -53,9 +53,9 @@
   }
   @media (min-aspect-ratio: 1/1) { body { flex-direction: row; } }
 
-  .controls { display: flex; gap: 12px; align-items: stretch; justify-content: center; height: var(--ctrl-h); }
+  .controls { display: flex; flex-wrap: wrap; align-content: center; gap: 12px; align-items: stretch; justify-content: center; height: var(--ctrl-h); max-width: var(--av-w); }
   @media (min-aspect-ratio: 1/1) {
-    .controls { flex-direction: column; width: var(--side); height: auto; justify-content: center; gap: 16px; }
+    .controls { flex-direction: column; flex-wrap: nowrap; width: var(--side); height: auto; justify-content: center; gap: 16px; }
   }
   .sizes { display: flex; border: 2px solid var(--tray); border-radius: 8px; overflow: hidden; }
   .sizes button {
@@ -75,6 +75,25 @@
   }
   @media (min-aspect-ratio: 1/1) { #shuffle { padding: 20px 16px; font-size: 20px; } }
   #shuffle:active { transform: translateY(1px); }
+
+  .seed { display: flex; gap: 10px; align-items: center; }
+  #code { font: 700 20px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; text-align: center; }
+  .load { display: flex; gap: 6px; }
+  .load input {
+    min-width: 0; width: 9.5em; font: 600 16px ui-monospace, Menlo, Consolas, monospace; text-transform: uppercase;
+    padding: 8px 10px; border: 2px solid var(--tray); border-radius: 8px; background: transparent; color: var(--ink);
+  }
+  .load input[aria-invalid="true"] { border-color: var(--accent); }
+  .load button {
+    font: inherit; font-weight: 600; padding: 8px 14px; border: 2px solid var(--tray); border-radius: 8px;
+    background: transparent; color: var(--ink); cursor: pointer;
+  }
+  @media (min-aspect-ratio: 1/1) {
+    .seed { flex-direction: column; align-items: stretch; }
+    .load { flex-direction: column; }
+    .load input { width: 100%; }
+    .load button { padding: 12px; }
+  }
   button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
   .tray { background: var(--tray); padding: calc(var(--board-w) * 0.035); border-radius: 14px; width: var(--board-w); flex: none; }
@@ -104,6 +123,13 @@
 <div class="controls">
   <div class="sizes" role="group" aria-label="Board size" id="sizes"></div>
   <button id="shuffle" type="button">Shuffle</button>
+  <div class="seed">
+    <output id="code" aria-label="Board code"></output>
+    <div class="load">
+      <input id="codeIn" type="text" maxlength="14" placeholder="5-K3F9QA" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Board code to load" aria-invalid="false">
+      <button id="load" type="button">Load</button>
+    </div>
+  </div>
 </div>
 
 <div class="tray"><div class="grid" id="grid" aria-live="polite"></div></div>
@@ -132,77 +158,143 @@ const VOWELS = "aeiou";           // Y and Qu count as consonants
 const MIN_VOWEL_RATIO = 0.25;      // board is re-rolled if vowels fall outside
 const MAX_VOWEL_RATIO = 0.50;      // [ceil(N*min), floor(N*max)]
 
-/* ===== LOGIC ================================================= */
-function shuffleInPlace(a) {
+/* ===== LOGIC =================================================
+   Board = f(code). code = "<size>-<seed>", e.g. "5-K3F9QA".
+   All randomness (dice positions, faces, 6x6/7x7 dice pool, vowel
+   re-rolls, rotations) is drawn from one seeded PRNG stream, so the
+   same code gives the same board, rotations included, on every device.
+   Do NOT use Math.random() inside board generation, and do not change
+   dice data, vowel ratios or draw order: that invalidates existing codes.
+================================================================= */
+function xmur3(str) {                                    // string -> 32-bit seed
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+function mulberry32(a) {                                 // 32-bit seed -> () => [0,1)
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleInPlace(a, rng) {
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
 }
 
-function buildDiceSet(n) {
+function buildDiceSet(n, rng) {
   const need = n * n;
   if (n === 4) return DICE_16.slice();
   if (n === 5) return DICE_25.slice();
   const pool = DICE_16.concat(DICE_25);                  // 41 dice
-  if (need <= pool.length) return shuffleInPlace(pool.slice()).slice(0, need);
+  if (need <= pool.length) return shuffleInPlace(pool.slice(), rng).slice(0, need);
   const extra = [];
   while (pool.length + extra.length < need)              // reuse dice when pool < need
-    extra.push(pool[Math.floor(Math.random() * pool.length)]);
+    extra.push(pool[Math.floor(rng() * pool.length)]);
   return pool.concat(extra);
 }
 
-function rollOnce(n) {
-  const dice = shuffleInPlace(buildDiceSet(n));          // random position per die
-  return dice.map(d => d[Math.floor(Math.random() * 6)]); // random up-face per die
+function rollOnce(n, rng) {
+  const dice = shuffleInPlace(buildDiceSet(n, rng), rng);   // random position per die
+  return dice.map(d => d[Math.floor(rng() * 6)]);           // random up-face per die
 }
 
-function rollBoard(n) {
+function rollBoard(n, rng) {
   const N = n * n, lo = Math.ceil(N * MIN_VOWEL_RATIO), hi = Math.floor(N * MAX_VOWEL_RATIO);
-  for (;;) {                                             // reject all-vowel / all-consonant style boards
-    const b = rollOnce(n);
-    const v = b.filter(c => VOWELS.includes(c)).length;
-    if (v >= lo && v <= hi) return b;
+  let letters;
+  for (;;) {                                             // reject boards outside vowel limits
+    letters = rollOnce(n, rng);
+    const v = letters.filter(c => VOWELS.includes(c)).length;
+    if (v >= lo && v <= hi) break;
   }
+  const rots = letters.map(() => Math.floor(rng() * 4) * 90);   // 0/90/180/270 per tile
+  return { letters, rots };
+}
+
+const SEED_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no 0/O/1/I
+function newSeed() {                                     // generation only; not part of board logic
+  let s = "";
+  for (let i = 0; i < 6; i++) s += SEED_CHARS[Math.floor(Math.random() * SEED_CHARS.length)];
+  return s;
+}
+function boardFromCode(n, seed) {
+  return rollBoard(n, mulberry32(xmur3(n + "-" + seed)));
+}
+function parseCode(text) {                               // -> {n, seed} | null
+  const m = /^([4-7])-([A-Z0-9]{1,12})$/.exec(String(text).trim().toUpperCase());
+  return m ? { n: +m[1], seed: m[2] } : null;
 }
 
 /* ===== UI ==================================================== */
-let size = 4;
-let board = [];
+let size = 4, seed = "", board = null;
 const gridEl = document.getElementById("grid");
 const sizesEl = document.getElementById("sizes");
+const codeEl = document.getElementById("code");
+const codeIn = document.getElementById("codeIn");
 
 function render() {
   gridEl.style.setProperty("--n", size);
   gridEl.innerHTML = "";
-  board.forEach(ch => {
+  board.letters.forEach((ch, i) => {
     const el = document.createElement("div");
     const label = ch === "q" ? "Qu" : ch.toUpperCase();
     el.className = "die shake" + (label.length > 1 ? " long" : "") + (MARKED.includes(label) ? " mark" : "");
-    el.style.setProperty("--r", (Math.floor(Math.random() * 4) * 90) + "deg"); // 0/90/180/270, independent per die
+    el.style.setProperty("--r", board.rots[i] + "deg");
     const face = document.createElement("span");
     face.textContent = label;
     el.appendChild(face);
     gridEl.appendChild(el);
   });
+  codeEl.textContent = size + "-" + seed;
+  [...sizesEl.children].forEach((b, i) => b.setAttribute("aria-pressed", SIZES[i] === size));
 }
 
-function shuffle() { board = rollBoard(size); render(); }
+function setBoard(n, sd) {
+  size = n; seed = sd;
+  board = boardFromCode(n, sd);
+  codeIn.value = ""; codeIn.setAttribute("aria-invalid", "false");
+  render();
+}
+
+function shuffle() { setBoard(size, newSeed()); }
+
+function loadFromInput() {
+  const parsed = parseCode(codeIn.value);
+  if (!parsed) { codeIn.setAttribute("aria-invalid", "true"); return; }
+  setBoard(parsed.n, parsed.seed);
+}
 
 SIZES.forEach(n => {
   const b = document.createElement("button");
   b.type = "button"; b.textContent = n + "×" + n;
-  b.setAttribute("aria-pressed", n === size);
-  b.addEventListener("click", () => {
-    size = n;
-    [...sizesEl.children].forEach((x, i) => x.setAttribute("aria-pressed", SIZES[i] === n));
-    shuffle();
-  });
+  b.addEventListener("click", () => setBoard(n, newSeed()));
   sizesEl.appendChild(b);
 });
 document.getElementById("shuffle").addEventListener("click", shuffle);
-shuffle();
+document.getElementById("load").addEventListener("click", loadFromInput);
+codeIn.addEventListener("keydown", e => { if (e.key === "Enter") loadFromInput(); });
+codeIn.addEventListener("input", () => codeIn.setAttribute("aria-invalid", "false"));
+
+/* open link ending in #<code> (e.g. #5-K3F9QA); otherwise start with a random 4x4 */
+function fromHash() {
+  let h = "";
+  try { h = decodeURIComponent(location.hash.slice(1)); } catch (e) {}
+  const parsed = parseCode(h);
+  if (parsed) setBoard(parsed.n, parsed.seed); else setBoard(4, newSeed());
+}
+window.addEventListener("hashchange", () => { if (parseCode(location.hash.slice(1))) fromHash(); });
+fromHash();
 </script>
 </body>
 </html>
