@@ -18,7 +18,7 @@
     --pad: 16px;
     --gap: 16px;
     --side: 176px;      /* control column width (landscape) */
-    --ctrl-h: 108px;    /* control block height (portrait, two rows) */
+    --ctrl-h: 158px;    /* control block height (portrait, three rows) */
     --av-w: calc(100vw - 2 * var(--pad));
     --av-h: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--pad));
     /* portrait: controls above board */
@@ -116,6 +116,19 @@
   .die.shake > span { animation: roll .28s ease-out; }
   @keyframes roll { from { transform: rotate(calc(var(--r) + 90deg)) scale(.85); opacity: .4; } to { transform: rotate(var(--r)); opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .die.shake > span { animation: none; } }
+
+  .points { flex: 0 0 100%; display: flex; gap: 16px; justify-content: safe center; overflow-x: auto; }
+  .prow { display: flex; align-items: center; gap: 6px; flex: none; font: 600 16px ui-monospace, Menlo, Consolas, monospace; }
+  .prow input {
+    width: 3.4ch; padding: 4px 2px; border: 0; border-bottom: 1px dashed var(--tray); border-radius: 0;
+    background: transparent; color: var(--ink); font: inherit;
+  }
+  .prow input:first-child { text-align: right; }
+  .prow input:last-child { text-align: left; }
+  @media (min-aspect-ratio: 1/1) {
+    .controls { max-height: var(--av-h); overflow-y: auto; justify-content: safe center; }
+    .points { flex: none; flex-direction: column; align-items: center; gap: 4px; overflow: visible; }
+  }
 </style>
 </head>
 <body>
@@ -130,6 +143,7 @@
       <button id="load" type="button">Load</button>
     </div>
   </div>
+  <div class="points" id="points" role="group" aria-label="Points by word length"></div>
 </div>
 
 <div class="tray"><div class="grid" id="grid" aria-live="polite"></div></div>
@@ -257,6 +271,7 @@ function render() {
     gridEl.appendChild(el);
   });
   codeEl.textContent = size + "-" + seed;
+  if (pointsSize !== size) { renderPoints(); pointsSize = size; }
   [...sizesEl.children].forEach((b, i) => b.setAttribute("aria-pressed", SIZES[i] === size));
 }
 
@@ -285,6 +300,57 @@ document.getElementById("shuffle").addEventListener("click", shuffle);
 document.getElementById("load").addEventListener("click", loadFromInput);
 codeIn.addEventListener("keydown", e => { if (e.key === "Enter") loadFromInput(); });
 codeIn.addEventListener("input", () => codeIn.setAttribute("aria-invalid", "false"));
+
+/* ===== POINTS TABLES ==========================================
+   One editable "length - points" table per board size. Plain text
+   fields (last row defaults to "8+"). Cached in this browser's
+   localStorage, so edits persist on this device only (not shared
+   between devices). Defaults: 3/4 letters 1, 5 letters 2, 6 letters 3,
+   7 letters 5, 8+ letters 11 (classic 4x4 scoring,
+   https://bargames101.com/boggle-rules/). Same defaults used for the
+   other sizes as placeholders; edit as needed.
+================================================================= */
+const POINTS_KEY = "boggle-points-v1";
+const DEFAULT_POINTS = [["3","1"],["4","1"],["5","2"],["6","3"],["7","5"],["8+","11"]];
+const pointsEl = document.getElementById("points");
+let pointsSize = 0;
+let pointsStore = loadPoints();
+
+function loadPoints() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(POINTS_KEY)) || {}; } catch (e) {}
+  const out = {};
+  SIZES.forEach(n => {
+    const t = saved[n];
+    const valid = Array.isArray(t) && t.length > 0 &&
+      t.every(r => Array.isArray(r) && r.length === 2 && typeof r[0] === "string" && typeof r[1] === "string");
+    out[n] = valid ? t : DEFAULT_POINTS.map(r => r.slice());
+  });
+  return out;
+}
+function savePoints() {
+  try { localStorage.setItem(POINTS_KEY, JSON.stringify(pointsStore)); } catch (e) {}
+}
+function renderPoints() {
+  pointsEl.innerHTML = "";
+  const rows = pointsStore[size];
+  rows.forEach((row, i) => {
+    const wrap = document.createElement("div");
+    wrap.className = "prow";
+    const mk = (col, label) => {
+      const inp = document.createElement("input");
+      inp.type = "text"; inp.value = row[col]; inp.maxLength = 3; inp.autocomplete = "off"; inp.spellcheck = false;
+      inp.setAttribute("aria-label", label + " " + (i + 1));
+      if (col === 1) inp.inputMode = "numeric";
+      inp.addEventListener("input", () => { rows[i][col] = inp.value; savePoints(); });
+      return inp;
+    };
+    const dash = document.createElement("span");
+    dash.textContent = "-";
+    wrap.append(mk(0, "Word length, row"), dash, mk(1, "Points, row"));
+    pointsEl.appendChild(wrap);
+  });
+}
 
 /* open link ending in #<code> (e.g. #5-K3F9QA); otherwise start with a random 4x4 */
 function fromHash() {
